@@ -63,7 +63,7 @@ All data is stored in your browser's **localStorage**. Nothing is sent to any se
  
 ## Curriculum
  
-Built against the official **BS Computer Engineering curriculum of UP Diliman**, including all core, required, and elective courses with accurate prerequisite and corequisite chains.
+Built against the official **BS Electronics Engineering curriculum of UP Diliman**, including all core, required, and elective courses with accurate prerequisite and corequisite chains.
  
 ---
  
