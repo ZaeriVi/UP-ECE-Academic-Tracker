@@ -78,3 +78,6 @@ Built against the official **BS Electronics Engineering curriculum of UP Diliman
  
 This is an unofficial student tool. Always verify your academic standing, graduation requirements, and scholarship status with your official academic records and the University Registrar.
  
+## Accessible via webapp
+
+*https://zaerivi.github.io/UP-ECE-Academic-Tracker*
