@@ -214,3 +214,11 @@ select.grade-sel{padding:4px 6px;border-radius:6px;border:1px solid #d1d5db;font
 .retake-badge-removal{background:#fef3c7;color:#d97706}
 .retake-badge-passed{background:#dcfce7;color:#16a34a}
 .retake-badge-failed{background:#fee2e2;color:#dc2626}
+/* ── WHAT-IF SIMULATOR STYLES ── */
+.wi-group{border:1px solid #e5e7eb;border-radius:10px;margin-bottom:10px;overflow:hidden}
+.wi-group-hdr{padding:9px 14px;background:#f8fafc;cursor:pointer;display:flex;justify-content:space-between;align-items:center;font-size:12px;font-weight:700;color:#374151;list-style:none}
+.wi-group-hdr::-webkit-details-marker{display:none}
+.wi-group-hdr:hover{background:#f1f5f9}
+.wi-group-body{padding:10px;display:grid;grid-template-columns:repeat(auto-fill,minmax(290px,1fr));gap:7px}
+.wi-diff-row{box-shadow:0 0 0 1px #ff9800 inset}
+.wi-changed-badge{display:inline-block;font-size:9px;font-weight:700;padding:1px 7px;border-radius:5px;background:#ffedd5;color:#c2410c;margin-left:6px;vertical-align:middle}
