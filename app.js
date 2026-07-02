@@ -168,6 +168,20 @@ function effectiveGrade(code) {
   if (STATE.simMode && STATE.simGrades[code]) return STATE.simGrades[code];
   return STATE.grades[code] || {label:"In Progress",num:null};
 }
+// Grade lookup with an EXPLICIT, independent sim/real mode — unlike
+// effectiveGrade (which is at the mercy of the global STATE.simMode
+// toggle), this lets callers force "real" or "simulated" regardless of
+// whether Simulation Mode happens to be globally on. Needed so the
+// What-If tab can show an accurate Real-vs-Simulated comparison at the
+// same time, and so evaluateScholarshipStatus(useSimMode) always
+// returns numbers matching the mode it was actually asked for.
+// forceSimMode: true = simulated, false = real, undefined = respect
+// the global toggle (identical to plain effectiveGrade).
+function gradeForCourseMode(code, forceSimMode) {
+  if (forceSimMode === true)  return STATE.simGrades[code] || STATE.grades[code] || {label:"In Progress",num:null};
+  if (forceSimMode === false) return STATE.grades[code] || {label:"In Progress",num:null};
+  return effectiveGrade(code);
+}
 
 // ── RETAKE-AWARE HELPERS ──────────────────────────────────────────
 function getRetakesForCourse(code) {
@@ -205,13 +219,13 @@ function getCustomGrade(customId) {
 // 4.00 and 5.00 are included — they are final numeric grades.
 // Only DRP (not graded) and "In Progress" (not yet graded) are excluded.
 // Formula: Σ(grade × units) / Σ(units)
-function computeGWA(filter) {
+function computeGWA(filter, forceSimMode) {
   let tp=0, tu=0;
 
   COURSES.forEach(c => {
     if (["pe","nstp"].includes(c.type)) return; // PE and NSTP excluded from GWA
     if (filter && !filter(c)) return;
-    const g = effectiveGrade(c.code);
+    const g = gradeForCourseMode(c.code, forceSimMode);
     if (!g || g.num === null || g.label === "In Progress" || g.label === "DRP") return;
     tp += g.num * c.units;
     tu += c.units;
@@ -322,12 +336,12 @@ function computeBucketSemGwa(entries) {
 // only (1.00–3.00). Excludes PE, NSTP, failures (5.00), 4.00 INC,
 // DRP, In Progress. Custom courses excluded unless wagEligible.
 // Formula: Σ(grade × units) / Σ(units)  [passing only]
-function computeWAG() {
+function computeWAG(forceSimMode) {
   let tp=0, tu=0;
 
   COURSES.forEach(c => {
     if (["pe","nstp"].includes(c.type)) return; // excluded per UP Honors rules
-    const g = effectiveGrade(c.code);
+    const g = gradeForCourseMode(c.code, forceSimMode);
     if (!g || g.num === null || g.label === "In Progress" || g.label === "DRP") return;
     if (g.num < 1.00 || g.num > 3.00) return; // only passing grades (1.00–3.00)
     tp += g.num * c.units;
@@ -477,7 +491,7 @@ let currentTab = "dashboard";
 function showTab(tab) {
   currentTab = tab;
   document.querySelectorAll('.nav-btn').forEach((b,i)=>{
-    const tabs=["dashboard","grades","audit","scholarship","whatif","flowchart","planner","gradesim"];
+    const tabs=["dashboard","grades","scholarship","whatif","audit","flowchart","planner","gradesim"];
     b.classList.toggle("active",tabs[i]===tab);
   });
   document.querySelectorAll('[id^="tab-"]').forEach(el=>el.style.display="none");
@@ -1092,16 +1106,6 @@ const SCHOL_RULES = {
       4: "Passing grades in all subjects; regular load required",
       5: "Passing grades in all subjects (graduating year)"
     },
-    deficiencyPolicy: [
-      { trigger:"drop_le3", status:"CONTINUED", rule:"Dropped ≤3 units", action:"Continue current standing." },
-      { trigger:"drop_gt3", status:"PROBATION", rule:"Dropped >3 units", action:"Meet load requirements next semester." },
-      { trigger:"gwa_miss_small", status:"CONTINUED", rule:"GWA below req by 0.01–0.10", action:"Monitor GWA closely." },
-      { trigger:"gwa_miss_big", status:"PROBATION", rule:"GWA below req by >0.10", action:"Significant improvement required next evaluation." },
-      { trigger:"one_fail_y1s1", status:"PROBATION", rule:"1 grade of 5.00 in 1st semester", action:"Retake failed subject; avoid further failures." },
-      { trigger:"one_fail_prev", status:"PARTIAL", rule:"1 grade of 5.00 with previous deficiency", action:"Comply with partial allowance conditions; consult DOST." },
-      { trigger:"two_fails", status:"TERMINATED", rule:"2 grades of 5.00 in one semester", action:"Consult scholarship office immediately regarding service obligation." },
-      { trigger:"inc_prev", status:"PARTIAL", rule:"INC with previous deficiency", action:"Complete INC subject; comply with partial allowance." },
-    ],
     faq: [
       { q:"How many units can I drop per semester?", a:"A maximum of 3 academic units per semester. PE and NSTP units are not counted toward the drop limit." },
       { q:"Are PE and NSTP units counted for scholarship load purposes?", a:"No. PE and NSTP are excluded from academic load calculations for scholarship compliance." },
@@ -1126,16 +1130,6 @@ const SCHOL_RULES = {
       4: "Passing grades in all subjects; regular load required",
       5: "Passing grades in all subjects (graduating year)"
     },
-    deficiencyPolicy: [
-      { trigger:"drop_le3", status:"CONTINUED", rule:"Dropped ≤3 units", action:"Continue current standing." },
-      { trigger:"drop_gt3", status:"PROBATION", rule:"Dropped >3 units", action:"Meet load requirements next semester." },
-      { trigger:"gwa_miss_small", status:"CONTINUED", rule:"GWA below req by 0.01–0.10", action:"Monitor GWA closely." },
-      { trigger:"gwa_miss_big", status:"PROBATION", rule:"GWA below req by >0.10", action:"Significant improvement required." },
-      { trigger:"one_fail_y1s1", status:"PROBATION", rule:"1 grade of 5.00 in 1st semester", action:"Retake failed subject; avoid further failures." },
-      { trigger:"one_fail_prev", status:"PARTIAL", rule:"1 grade of 5.00 with previous deficiency", action:"Comply with partial allowance conditions." },
-      { trigger:"two_fails", status:"TERMINATED", rule:"2 grades of 5.00 in one semester", action:"Consult scholarship office immediately." },
-      { trigger:"inc_prev", status:"PARTIAL", rule:"INC with previous deficiency", action:"Complete INC subject; comply with partial allowance." },
-    ],
     faq: [
       { q:"How many units can I drop per semester?", a:"A maximum of 3 academic units. PE and NSTP are not counted." },
       { q:"Are PE and NSTP counted for scholarship load?", a:"No — they are excluded from all academic load calculations." },
@@ -1160,17 +1154,6 @@ const SCHOL_RULES = {
       4: "Passing grades in all subjects; regular load required",
       5: "Passing grades in all subjects (graduating year)"
     },
-    deficiencyPolicy: [
-      { trigger:"drop_le3", status:"CONTINUED", rule:"Dropped ≤3 units (Reg Sem)", action:"Continue current standing." },
-      { trigger:"drop_gt3", status:"PROBATION", rule:"Dropped >3 units (Reg Sem)", action:"Meet load requirements next semester." },
-      { trigger:"gwa_miss_small", status:"CONTINUED", rule:"GWA below req by 0.01–0.10", action:"Monitor GWA closely." },
-      { trigger:"gwa_miss_big", status:"PROBATION", rule:"GWA below req by >0.10", action:"Significant improvement required next evaluation." },
-      { trigger:"one_fail_y1s1", status:"PROBATION", rule:"1 grade of 5.00 in 1st sem (Year 1)", action:"Retake failed subject; no further failures." },
-      { trigger:"one_fail_prev", status:"PARTIAL", rule:"1 grade of 5.00 with previous deficiency", action:"Comply with partial allowance; consult UPD DOST Core Group." },
-      { trigger:"two_fails", status:"TERMINATED", rule:"2 grades of 5.00 in one semester", action:"Consult scholarship office immediately. Service obligation may apply." },
-      { trigger:"inc_prev", status:"PARTIAL", rule:"INC grade with previous deficiency on record", action:"Complete INC subject to restore full allowance." },
-      { trigger:"grad_year_safe", status:"CONTINUED", rule:"Graduating year — all deficiencies cleared", action:"Continue to submit grades as required." },
-    ],
     faq: [
       { q:"How many units can I drop per semester?", a:"3 units or less per regular semester. PE and NSTP are excluded from this count." },
       { q:"Are PE and NSTP units counted for dropping?", a:"No. PE and NSTP are non-academic and are not counted toward the drop limit." },
@@ -1199,16 +1182,6 @@ const SCHOL_RULES = {
       4: "Passing grades in all subjects; regular load required",
       5: "Passing grades in all subjects (graduating year)"
     },
-    deficiencyPolicy: [
-      { trigger:"drop_le3", status:"CONTINUED", rule:"Dropped ≤3 units", action:"Continue current standing." },
-      { trigger:"drop_gt3", status:"PROBATION", rule:"Dropped >3 units", action:"Meet load requirements next evaluation." },
-      { trigger:"gwa_miss_small", status:"CONTINUED", rule:"GWA below req by 0.01–0.10", action:"Monitor GWA closely." },
-      { trigger:"gwa_miss_big", status:"PROBATION", rule:"GWA below req by >0.10", action:"Significant improvement required." },
-      { trigger:"one_fail_y1s1", status:"PROBATION", rule:"1 grade of 5.00 (1st sem)", action:"Retake failed subject; avoid further failures." },
-      { trigger:"one_fail_prev", status:"PARTIAL", rule:"1 grade of 5.00 with previous deficiency", action:"Comply with partial allowance conditions." },
-      { trigger:"two_fails", status:"TERMINATED", rule:"2 grades of 5.00 in one semester", action:"Consult scholarship office immediately." },
-      { trigger:"inc_prev", status:"PARTIAL", rule:"INC with previous deficiency", action:"Complete INC subject promptly." },
-    ],
     faq: [
       { q:"How many units can I drop per semester?", a:"3 units or less. PE and NSTP are not included in this count." },
       { q:"Are PE and NSTP counted for academic load?", a:"No — both are excluded from all load and drop calculations." },
@@ -1221,316 +1194,384 @@ const SCHOL_RULES = {
   },
 };
 
+// ══════════════════════════════════════════════════════════════════
+// DOST-SEI OFFICIAL DECISION MATRIX
+// Single source of truth for BOTH the automated evaluator
+// (evaluateScholarshipStatus) and the Rules & Policy display tab —
+// the two must never diverge. Sourced verbatim from the official
+// rules supplied by the user (cohort-invariant; stipend/GWA/load
+// numbers that DO vary per cohort remain in SCHOL_RULES above).
+//
+// "No previous deficiency" / "with previous deficiency" is detected
+// automatically (see hasPriorDeficiency in evaluateScholarshipStatus)
+// from: any previous 5.00, any previous unresolved 4.00/INC, any
+// previous drop >3 units, any previous GWA miss, or any previously
+// resolved deficiency of those kinds. It is never manually set.
+// ══════════════════════════════════════════════════════════════════
+const DOST_DECISION_MATRIX = {
+  "First Year": [
+    { trigger:"y1_underload",     status:"CONTINUED",  rule:"Underload of 3 units (dropped ≤3 units)", action:"No action required." },
+    { trigger:"y1_drop_gt3",      status:"PROBATION",  rule:"Dropped more than 3 units", action:"Continued under Probation. Avoid excess dropping." },
+    { trigger:"y1_gwa_small",     status:"PROBATION",  rule:"GWA below requirement by 0.0–0.10", action:"Continued under Probation. Improve GWA." },
+    { trigger:"y1_gwa_big",       status:"PROBATION",  rule:"GWA below requirement by above 0.10", action:"Continued under Probation. Improve GWA urgently." },
+    { trigger:"y1_inc_s1",        status:"PROBATION",  rule:"Grade(s) of 4.00/INC at the end of the First Semester", action:"Continued under Probation. Complete INC subject(s) promptly." },
+    { trigger:"y1_fail_s1",       status:"PROBATION",  rule:"First grade of 5.00 at the end of the First Semester", action:"Continued under Probation. Retake the failed subject." },
+    { trigger:"y1_combo_s2_nodef", status:"PROBATION",  rule:"Grade of 4.00/INC and one grade of 5.00 at the end of the Second Semester — no previous offense", action:"Continued under Probation. Retake the failed subject and complete the INC." },
+    { trigger:"y1_combo_s2_def",   status:"PARTIAL",    rule:"Grade of 4.00/INC and one grade of 5.00 at the end of the Second Semester — with previous offense", action:"Continued with Partial Allowance. Comply with conditions; consult DOST-SEI." },
+    { trigger:"y1_two_fails",     status:"TERMINATED", rule:"Two grades of 5.00 at the end of the Semester", action:"Terminated with Service Obligation. Consult DOST-SEI immediately." },
+  ],
+  "Second Year": [
+    { trigger:"y2_gwa_nodef",     status:"PROBATION",  rule:"GWA below requirement — no previous deficiency", action:"Continued under Probation. Improve GWA." },
+    { trigger:"y2_gwa_def",       status:"PARTIAL",    rule:"GWA below requirement — with previous deficiency", action:"Continued with Partial Allowance. Comply with conditions." },
+    { trigger:"y2_2inc_nodef",    status:"PROBATION",  rule:"Two grades of 4.00/INC in a term — no previous deficiency", action:"Continued under Probation. Complete INC subjects." },
+    { trigger:"y2_2inc_def",      status:"PARTIAL",    rule:"Two grades of 4.00/INC in a term — with previous deficiency", action:"Continued with Partial Allowance. Comply with conditions." },
+    { trigger:"y2_1fail_nodef",   status:"PROBATION",  rule:"One grade of 5.00 — no previous deficiency", action:"Continued under Probation. Retake the failed subject." },
+    { trigger:"y2_1fail_def",     status:"PARTIAL",    rule:"One grade of 5.00 — with previous deficiency", action:"Continued with Partial Allowance. Comply with conditions." },
+    { trigger:"y2_2nd_fail",      status:"PARTIAL",    rule:"Second grade of 5.00 (incurred in a different semester from the first)", action:"Continued with Partial Allowance. Comply with conditions; consult DOST-SEI." },
+    { trigger:"y2_two_fails",     status:"TERMINATED", rule:"Two grades of 5.00 at the end of the Semester", action:"Terminated with Service Obligation. Consult DOST-SEI immediately." },
+  ],
+  "Third/Fourth Year": [
+    { trigger:"y34_1inc_nodef",        status:"CONTINUED",  rule:"One grade of 4.00/INC — no previous deficiency", action:"No formal action required. Complete the INC subject." },
+    { trigger:"y34_1inc_def",          status:"PROBATION",  rule:"One grade of 4.00/INC — with previous deficiency", action:"Continued under Probation. Complete the INC subject." },
+    { trigger:"y34_2inc_nodef",        status:"PROBATION",  rule:"Two grades of 4.00/INC in a term — no previous deficiency", action:"Continued under Probation. Complete INC subjects." },
+    { trigger:"y34_2inc_def",          status:"PARTIAL",    rule:"Two grades of 4.00/INC in a term — with previous deficiency", action:"Continued with Partial Allowance. Comply with conditions." },
+    { trigger:"y34_drop_nodef",        status:"PROBATION",  rule:"Dropped subjects exceeding 3 units — no previous deficiency", action:"Continued under Probation. Avoid excess dropping." },
+    { trigger:"y34_drop_def",          status:"PARTIAL",    rule:"Dropped subjects exceeding 3 units — with previous deficiency", action:"Continued with Partial Allowance. Comply with conditions." },
+    { trigger:"y34_1fail_nodef",       status:"PROBATION",  rule:"One grade of 5.00 — no previous deficiency", action:"Continued under Probation. Retake the failed subject." },
+    { trigger:"y34_1fail_def",         status:"PARTIAL",    rule:"One grade of 5.00 — with previous deficiency", action:"Continued with Partial Allowance. Comply with conditions." },
+    { trigger:"y34_2nd_fail",          status:"PARTIAL",    rule:"Second grade of 5.00 (incurred in a different semester from the first)", action:"Continued with Partial Allowance. Comply with conditions; consult DOST-SEI." },
+    { trigger:"y34_3rd_fail_unresolved", status:"TERMINATED", rule:"Third grade of 5.00 — has NOT yet passed the two previous failing grades incurred in two different semesters", action:"Terminated with Service Obligation. Consult DOST-SEI immediately." },
+    { trigger:"y34_3rd_fail_resolved",   status:"PARTIAL",    rule:"Third grade of 5.00 — has already passed the two previous failing grades incurred in two different semesters", action:"Continued with Partial Allowance. Comply with conditions; consult DOST-SEI." },
+    { trigger:"y34_two_fails",         status:"TERMINATED", rule:"Two grades of 5.00 at the end of the Semester", action:"Terminated with Service Obligation. Consult DOST-SEI immediately." },
+    { trigger:"y34_good_standing",     status:"CONTINUED",  rule:"Passing all academic deficiencies (good standing)", action:"Continue current academic standing." },
+  ],
+  "Graduating Year": [
+    { trigger:"grad_1fail",         status:"PROBATION", isGradYear:true, rule:"First grade of 5.00/F", action:"Continued to Submit Grades — comply with DOST-SEI submission requirements." },
+    { trigger:"grad_2inc",          status:"PROBATION", isGradYear:true, rule:"Two grades of 4.00/INC", action:"Continued to Submit Grades — comply with DOST-SEI submission requirements." },
+    { trigger:"grad_2nd_fail_pass", status:"PROBATION", isGradYear:true, rule:"Second grade of 5.00/F, but passed the previous failing grade", action:"Continued to Submit Grades — comply with DOST-SEI submission requirements." },
+    { trigger:"grad_3rd_fail",      status:"PROBATION", isGradYear:true, rule:"Third grade of 5.00/F", action:"Continued to Submit Grades — comply with DOST-SEI submission requirements." },
+    { trigger:"grad_two_fails",     status:"PROBATION", isGradYear:true, rule:"Two grades of 5.00 at the end of the Semester", action:"Continued to Submit Grades — comply with DOST-SEI submission requirements." },
+  ],
+};
+function dostRule(yearLabel, trigger) {
+  const found = (DOST_DECISION_MATRIX[yearLabel]||[]).find(r => r.trigger === trigger);
+  return found || { trigger, status:"PROBATION", rule:trigger, action:"" };
+}
+
 // ── SCHOLARSHIP STATUS EVALUATOR ──────────────────────────────────
-// Evaluates current status from grades + scholarship year rules.
-// Returns {status, reason, rule, action, details, gwa, semData}
+// Evaluates current status purely from the student's grade records,
+// against DOST_DECISION_MATRIX above. "Year Enjoyed" and "Previous
+// Deficiency" are both fully automatic — no manual selection is used
+// anywhere in this function.
+// Returns {status, reason, rule, action, semData, semStatuses,
+//          yearEnjoyed, prevDeficiency, gwa, ...}
 function evaluateScholarshipStatus(useSimMode) {
-  const yr = STATE.yearInScholarship;
-  const pd = STATE.prevDeficiency;
   const rules = SCHOL_RULES[STATE.scholarshipYear] || SCHOL_RULES["2025"];
   const gwaReq = rules.gwaReq.year1annual; // 2.75 for all current cohorts
 
   if (!STATE.scholarship) {
-    return { status:"N/A", reason:"Not a DOST Scholar (disabled in settings).", rule:"N/A", action:"Enable scholarship in settings if applicable." };
+    return { status:"N/A", reason:"Not a DOST Scholar (disabled in settings).", rule:"N/A", action:"Enable scholarship in settings if applicable.", semData:[], semStatuses:[], yearEnjoyed:1, prevDeficiency:false };
   }
 
-  // Gather semester data using the SAME bucket builder as Grade Manager,
-  // so semGwa here exactly matches what's displayed per-semester in Grade Manager.
+  // ── SEMESTER DATA: sourced from Grade Manager layout ─────────────
+  // Scholarship Year 1 = the 1st AY in PLAN_STATE.years (Planner layout)
+  // or the 1st curriculum year (default layout). Graduating Year = the
+  // LAST entry in PLAN_STATE.years — automatically updates whenever the
+  // user adds or removes a year in the Planner. No manual flag required.
+  // A semester is "reached" the moment ANY single course in it has a
+  // grade or DRP on record.
   const semData = [];
-  const allBuckets = buildSemBuckets();
+  const getOrigG = code => useSimMode ? effectiveGrade(code) : (STATE.grades[code]||{label:"In Progress",num:null});
+  const hasSemMap = Object.keys(STATE.semesterMap||{}).length > 0;
 
-  for (const bucket of allBuckets) {
-    if (bucket.key === "custom_unassigned") continue; // skip unplaced customs
+  // Build the ordered list of AY groups that define scholarship years.
+  // Each group has an id (used to look up Grade Manager buckets) and an
+  // ordered list of semesters within that AY.
+  let ayGroups; // [{id, displayLabel, sems:[{semStr, semIdx}]}]
+  if (hasSemMap) {
+    // Planner layout: use PLAN_STATE.years as the canonical AY sequence.
+    ayGroups = PLAN_STATE.years.map(yr => ({
+      id: yr.ay,
+      displayLabel: yr.ay,
+      sems: (yr.sems || ["1st","2nd"]).map((s, si) => ({semStr: s, semIdx: si + 1})),
+    }));
+  } else {
+    // Default layout: derive from distinct curriculum years in COURSES.
+    const seen = new Set();
+    const years = [];
+    COURSES.forEach(c => { if (!seen.has(c.year)) { seen.add(c.year); years.push(c.year); } });
+    years.sort((a,b) => a - b);
+    ayGroups = years.map(yr => ({
+      id: `y${yr}`,
+      displayLabel: `Year ${yr}`,
+      sems: [1,2].map(s => ({semStr: s === 1 ? "1st" : "2nd", semIdx: s})),
+    }));
+  }
 
-    // Collect only regular curriculum courses in this bucket (retakes handled below)
-    const bucketCourses = bucket.entries
-      .filter(e => e.type === "course")
-      .map(e => e.course);
+  const totalScholYears = ayGroups.length;
+  // Build bucket map once (not inside the loop) for O(1) lookups.
+  const bucketMap = {};
+  buildSemBuckets().forEach(b => { bucketMap[b.key] = b; });
 
-    // Need at least 2 graded curriculum courses to count as a "completed" semester
-    const graded = bucketCourses.filter(c => {
-      const g = useSimMode ? effectiveGrade(c.code) : STATE.grades[c.code];
-      return g && g.label !== "In Progress" && g.label !== "DRP";
-    });
-    if (graded.length < 2) continue;
+  for (let scholYear = 1; scholYear <= totalScholYears; scholYear++) {
+    const ayGroup = ayGroups[scholYear - 1];
+    const isGradYear = (scholYear === totalScholYears);
 
-    // Use latest valid attempt (retake-aware)
-    const getG = code => getLatestValidAttempt(code).grade;
-    const getOrigG = code => useSimMode ? effectiveGrade(code) : (STATE.grades[code]||{label:"In Progress",num:null});
+    for (const {semStr, semIdx} of ayGroup.sems) {
+      // Look up the matching Grade Manager bucket for this AY + semester.
+      const bucketKey = hasSemMap ? `${ayGroup.id}||${semStr}` : `${ayGroup.id}s${semIdx}`;
+      const bucket = bucketMap[bucketKey];
+      if (!bucket) continue;
 
-    const fails5 = graded.filter(c=>getG(c.code).num===5.00);
-    const incs4  = graded.filter(c=>getG(c.code).num===4.00);
-    // PE and NSTP excluded from dropped unit count (per DOST FAQ)
-    const droppedCourses = graded.filter(c=>getOrigG(c.code).label==="DRP"&&!["pe","nstp"].includes(c.type));
-    const droppedU = droppedCourses.reduce((s,c)=>s+c.units,0);
-    const droppedPENSTP = graded.filter(c=>getOrigG(c.code).label==="DRP"&&["pe","nstp"].includes(c.type)).reduce((s,c)=>s+c.units,0);
+      // Only regular curriculum course entries; retakes and customs are
+      // excluded (retakes are placed independently and don't redefine
+      // which scholarship year a semester belongs to).
+      const semCourses = bucket.entries
+        .filter(e => e.type === "course")
+        .map(e => e.course);
 
-    // semGwa via shared helper — identical to Grade Manager display
-    const semGwa = computeBucketSemGwa(bucket.entries);
+      // Reached if ANY course has a grade or DRP.
+      const withRecord = semCourses.filter(c => getOrigG(c.code).label !== "In Progress");
+      if (withRecord.length < 1) continue;
 
-    // Derive y/s from bucket's curriculum courses for the decision matrix
-    const y = bucket.y || (bucketCourses[0]?.year ?? 1);
-    const s = bucket.s || (bucketCourses[0]?.sem  ?? 1);
+      const graded = withRecord.filter(c => getOrigG(c.code).label !== "DRP");
+      // Fails/INCs use the original end-of-semester grade — a later
+      // successful retake does not retroactively erase the historical
+      // 5.00/4.00 for DOST evaluation purposes. Retake resolution is
+      // only checked separately where the matrix asks for it explicitly.
+      const fails5 = graded.filter(c => getOrigG(c.code).num === 5.00);
+      const incs4  = graded.filter(c => getOrigG(c.code).num === 4.00);
+      // PE/NSTP excluded from drop-unit count (per DOST FAQ).
+      const droppedU = withRecord
+        .filter(c => getOrigG(c.code).label === "DRP" && !["pe","nstp"].includes(c.type))
+        .reduce((s,c) => s + c.units, 0);
+      const droppedPENSTP = withRecord
+        .filter(c => getOrigG(c.code).label === "DRP" && ["pe","nstp"].includes(c.type))
+        .reduce((s,c) => s + c.units, 0);
 
-    semData.push({y, s, fails5:fails5.map(c=>c.code), incs4:incs4.map(c=>c.code), droppedU, droppedPENSTP, semGwa, gradedCount:graded.length});
+      // Semestral GWA — original grades, academic courses only (PE/NSTP out).
+      let tp = 0, tu = 0;
+      graded.forEach(c => {
+        if (["pe","nstp"].includes(c.type)) return;
+        const g = getOrigG(c.code);
+        if (g.num === null) return;
+        tp += g.num * c.units; tu += c.units;
+      });
+      const semGwa = tu > 0 ? tp / tu : null;
+
+      semData.push({
+        scholYear,                    // scholarship year number (1-indexed by AY order)
+        semIdx,                       // semester within the AY (1 = 1st, 2 = 2nd)
+        isGradYear,                   // true ⟺ this AY is the last in PLAN_STATE.years
+        label: bucket.label,          // display label from Grade Manager (e.g. "AY 2025-2026 — 1st Semester")
+        fails5: fails5.map(c => c.code),
+        incs4:  incs4.map(c => c.code),
+        droppedU, droppedPENSTP, semGwa,
+        gradedCount: graded.length,
+      });
+    }
   }
 
   if (semData.length === 0) {
     return {
-      status:"CONTINUED", gwa:null, semData:[],
+      status:"CONTINUED", gwa:null, semData:[], semStatuses:[],
       reason:"No completed semesters yet. Scholarship is currently active.",
-      rule:rules.gradeReqByYear[Math.min(yr,5)]||rules.gradeReqByYear[5],
+      rule:rules.gradeReqByYear[1],
       action:"Maintain GWA ≤ 2.75 and avoid failing grades.",
+      yearEnjoyed:1, prevDeficiency:false,
     };
   }
 
-  // ── FULL DOST DECISION MATRIX ────────────────────────────────────
-  // Mirrors the official DOST-SEI FAQ table (uploaded documents).
-  // Evaluation order matches the FAQ's conditional structure.
   const STATUS_RANK = {CONTINUED:0,PROBATION:1,PARTIAL:2,TERMINATED:3};
   let finalStatus = "CONTINUED";
   let triggerSem = null;
   let matchedPolicy = null;
+  let triggerHadPriorDeficiency = false;
+  const semStatuses = []; // parallel to semData — single source of truth for the per-semester table
 
-  // Track cumulative deficiencies across semesters (simulates "previous deficiency on record")
-  // The FAQ checks whether a prior semester already produced a deficiency.
-  let hasPriorDeficiency = pd; // starts from user-set flag
-  // Count of 5.00 grades that are still UNRESOLVED (no passing retake yet),
-  // accumulated across all semesters processed so far. Used for the Y3 rule:
-  // if a scholar enters Y3 with 2 unresolved 5.00s and fails another course → TERMINATED.
-  let cumulativeUnresolved5 = 0;
+  // hasPriorDeficiency: fully automatic, recomputed fresh from current
+  // grades every call (nothing persisted). Becomes true the moment a
+  // semester's OWN resulting status actually exceeds CONTINUED — i.e.
+  // a rule was genuinely violated and consequences applied — and stays
+  // true for the rest of THIS pass. A benign event that the matrix
+  // explicitly resolves to Continued (e.g. a single 4.00/INC alone in
+  // Year 1 Sem 2, or a first single INC in Year 3/4 with no prior
+  // deficiency) does NOT set it, since nothing was actually penalized.
+  // Because this is a full fresh recompute, clearing a grade that
+  // caused a real deficiency naturally un-sets the flag for whatever
+  // comes after it, and if it was the only deficiency on record, the
+  // flag (and status) return to false/Continued entirely.
+  let hasPriorDeficiency = false;
+
+  // Chronological fail history — used to compute first/second/third
+  // grade of 5.00 ordinals and whether prior fails are now resolved.
+  const failHistory = []; // [{code}]
+  let autoYearEnjoyed = 1;
 
   for (let sdIdx = 0; sdIdx < semData.length; sdIdx++) {
     const sd = semData[sdIdx];
-    const semYr = sd.y; // course-year of this semester
-    const isGradSem = PLAN_STATE.isGraduatingSem && sdIdx === semData.length - 1;
-    let semStatus = "CONTINUED";
-    let policy = null;
+    const semYr   = sd.scholYear;  // scholarship year number
+    const semIdx  = sd.semIdx;     // 1 = 1st semester, 2 = 2nd semester
+    const isGradSem = sd.isGradYear;
+    const f = sd.fails5.length, inc = sd.incs4.length, drp = sd.droppedU, gwa = sd.semGwa;
 
-    const f = sd.fails5.length;   // # of 5.00 grades (retake-resolved)
-    const inc = sd.incs4.length;  // # of 4.00 (INC) grades
-    const drp = sd.droppedU;      // academic dropped units (PE/NSTP excluded)
-    const gwa = sd.semGwa;
+    autoYearEnjoyed = isGradSem ? 5 : Math.min(semYr, 4);
 
-    // ── GRADUATING SEMESTER EXCEPTION ──────────────────────────────
-    // FAQ: Scholars in their final graduating semester are given special
-    // consideration. A single failure does not automatically terminate if
-    // the overall record is otherwise clean.
+    // Ordinal of a new fail this semester, and how many prior fails
+    // (from earlier semesters) are still unresolved via retake.
+    const priorFails = failHistory.slice();
+    const priorFailCount = priorFails.length;
+    const unresolvedPriorCount = priorFails.filter(pf => getLatestValidAttempt(pf.code).grade.num === 5.00).length;
+    const newFailOrdinal = priorFailCount + 1;
+
+    const candidates = []; // all rules that match this semester; worst wins
+    const push = (r) => candidates.push({status:r.status, trigger:r.trigger, rule:r.rule, action:r.action, isGradYear:r.isGradYear});
+
     if (isGradSem) {
-      if (f >= 2) {
-        // Two or more failures even in graduating sem → TERMINATED
-        semStatus = "TERMINATED";
-        policy = rules.deficiencyPolicy.find(p=>p.trigger==="two_fails") ||
-          {rule:"2+ failures in graduating semester",action:"Consult DOST-SEI scholarship office."};
-      } else if (f === 1 && hasPriorDeficiency) {
-        semStatus = "PARTIAL";
-        policy = {rule:"1 failure in graduating semester with prior deficiency",
-          action:"Comply with partial allowance; complete requirements."};
-      } else if (f === 1) {
-        semStatus = "PROBATION";
-        policy = {rule:"1 failure in graduating semester",
-          action:"Seek DOST-SEI guidance; graduating-year exception may apply."};
-      }
-      // Underload in graduating sem is explicitly allowed — no warning added
+      // ── GRADUATING YEAR ──────────────────────────────────────────
+      // All deficiency outcomes collapse to "Continued to Submit Grades".
+      if (f >= 1 || inc >= 2) push(dostRule("Graduating Year","grad_1fail"));
     }
 
-    // ── YEAR 1: ANNUAL EVALUATION ───────────────────────────────────
-    // FAQ: Year 1 scholars are evaluated on their ANNUAL (combined) GWA.
-    // Failure rules differ by semester within Year 1:
-    //   Y1S1: 1 fail → PROBATION (first-offense leniency)
-    //   Y1S2: 1 fail, no prior deficiency → CONTINUED (noted; annual eval absorbs it)
-    //   Y1S2: 1 fail, prior deficiency already on record → PARTIAL
     else if (semYr === 1) {
+      // ── FIRST YEAR ───────────────────────────────────────────────
       if (f >= 2) {
-        // 2+ failures in any single sem → TERMINATED (applies all years)
-        semStatus = "TERMINATED";
-        policy = rules.deficiencyPolicy.find(p=>p.trigger==="two_fails");
-      } else if (f === 1 && hasPriorDeficiency) {
-        // Prior deficiency + another fail in Y1 → PARTIAL
-        semStatus = "PARTIAL";
-        policy = rules.deficiencyPolicy.find(p=>p.trigger==="one_fail_prev");
-      } else if (f === 1 && sd.s === 1) {
-        // Y1 Sem 1 only: single fail with no prior → PROBATION
-        semStatus = "PROBATION";
-        policy = rules.deficiencyPolicy.find(p=>p.trigger==="one_fail_y1s1");
-      } else if (f === 1 && sd.s !== 1) {
-        // Y1 Sem 2 (or later within Y1): single fail, no prior → CONTINUED with note
-        // Annual evaluation: one fail in Sem 2 alone does not trigger formal probation
-        semStatus = "CONTINUED";
-        policy = {
-          trigger:"one_fail_y1s2_noted",
-          rule:"1 failing grade in Year 1 Sem 2 (noted; annual evaluation applies)",
-          action:"No formal action yet — ensure the failed subject is retaken and passed. Annual GWA will be reviewed at end of Year 1.",
-        };
-      } else if (inc >= 1 && hasPriorDeficiency) {
-        semStatus = "PARTIAL";
-        policy = rules.deficiencyPolicy.find(p=>p.trigger==="inc_prev");
-      } else if (inc >= 2) {
-        // 2 INCs even without prior → probation
-        semStatus = "PROBATION";
-        policy = {rule:"2+ INC grades in Year 1",action:"Complete INC subjects promptly."};
-      } else if (drp > 3) {
-        semStatus = hasPriorDeficiency ? "PARTIAL" : "PROBATION";
-        policy = rules.deficiencyPolicy.find(p=>p.trigger==="drop_gt3");
-      } else if (gwa !== null && gwa > gwaReq + 0.10) {
-        semStatus = "PROBATION";
-        policy = rules.deficiencyPolicy.find(p=>p.trigger==="gwa_miss_big");
-      } else if (gwa !== null && gwa > gwaReq) {
-        // Minor GWA miss (0.01–0.10) in Year 1 → Continued with note
-        semStatus = "CONTINUED";
-        policy = rules.deficiencyPolicy.find(p=>p.trigger==="gwa_miss_small");
+        push(dostRule("First Year","y1_two_fails"));
+      } else {
+        // Combo: a 4.00/INC AND a 5.00 together in the 2nd semester only.
+        const comboS2 = (f === 1 && inc >= 1 && semIdx === 2);
+        if (comboS2) {
+          push(hasPriorDeficiency ? dostRule("First Year","y1_combo_s2_def") : dostRule("First Year","y1_combo_s2_nodef"));
+        } else if (semIdx === 1) {
+          // 1st semester only: single fail or single 4.00/INC alone = Probation.
+          if (f === 1)   push(dostRule("First Year","y1_fail_s1"));
+          if (inc >= 1)  push(dostRule("First Year","y1_inc_s1"));
+        }
+        // 2nd semester, NOT a combo: single fail alone OR single INC alone
+        // → no rule fires; stays Continued. Only the AND combo escalates.
       }
+      if (drp > 3) push(dostRule("First Year","y1_drop_gt3"));
+      if (gwa !== null && gwa > gwaReq) push(gwa > gwaReq + 0.10 ? dostRule("First Year","y1_gwa_big") : dostRule("First Year","y1_gwa_small"));
+      if (candidates.length === 0) push(dostRule("Third/Fourth Year","y34_good_standing"));
     }
 
-    // ── YEAR 2: SEMESTRAL EVALUATION ───────────────────────────────
-    // FAQ: From Year 2 onwards, evaluation is per semester.
     else if (semYr === 2) {
+      // ── SECOND YEAR ──────────────────────────────────────────────
       if (f >= 2) {
-        semStatus = "TERMINATED";
-        policy = rules.deficiencyPolicy.find(p=>p.trigger==="two_fails");
-      } else if (f === 1 && hasPriorDeficiency) {
-        semStatus = "PARTIAL";
-        policy = rules.deficiencyPolicy.find(p=>p.trigger==="one_fail_prev");
-      } else if (f === 1) {
-        semStatus = "PROBATION";
-        policy = rules.deficiencyPolicy.find(p=>p.trigger==="one_fail_y1s1");
-      } else if (inc >= 2 && hasPriorDeficiency) {
-        semStatus = "PARTIAL";
-        policy = rules.deficiencyPolicy.find(p=>p.trigger==="inc_prev");
-      } else if (inc >= 1 && hasPriorDeficiency) {
-        semStatus = "PARTIAL";
-        policy = rules.deficiencyPolicy.find(p=>p.trigger==="inc_prev");
-      } else if (drp > 3 && hasPriorDeficiency) {
-        semStatus = "PARTIAL";
-        policy = rules.deficiencyPolicy.find(p=>p.trigger==="drop_gt3");
-      } else if (drp > 3) {
-        semStatus = "PROBATION";
-        policy = rules.deficiencyPolicy.find(p=>p.trigger==="drop_gt3");
-      } else if (gwa !== null && gwa > gwaReq && hasPriorDeficiency) {
-        semStatus = "PARTIAL";
-        policy = rules.deficiencyPolicy.find(p=>p.trigger==="gwa_miss_big");
-      } else if (gwa !== null && gwa > gwaReq + 0.10) {
-        semStatus = "PROBATION";
-        policy = rules.deficiencyPolicy.find(p=>p.trigger==="gwa_miss_big");
-      } else if (gwa !== null && gwa > gwaReq) {
-        semStatus = "CONTINUED";
-        policy = rules.deficiencyPolicy.find(p=>p.trigger==="gwa_miss_small");
+        push(dostRule("Second Year","y2_two_fails"));
+      } else {
+        if (f === 1) {
+          if (newFailOrdinal >= 2) push(dostRule("Second Year","y2_2nd_fail"));
+          else push(hasPriorDeficiency ? dostRule("Second Year","y2_1fail_def") : dostRule("Second Year","y2_1fail_nodef"));
+        }
+        if (inc >= 2) push(hasPriorDeficiency ? dostRule("Second Year","y2_2inc_def") : dostRule("Second Year","y2_2inc_nodef"));
+        if (gwa !== null && gwa > gwaReq) push(hasPriorDeficiency ? dostRule("Second Year","y2_gwa_def") : dostRule("Second Year","y2_gwa_nodef"));
       }
+      if (candidates.length === 0) push(dostRule("Third/Fourth Year","y34_good_standing"));
     }
 
-    // ── YEAR 3 and YEAR 4: STRICT EVALUATION ───────────────────────
-    // FAQ: 3rd-year-enjoyed and 4th-year-enjoyed scholars face stricter rules.
-    // A single 5.00 with a prior deficiency on record → PARTIAL or TERMINATED.
-    // Two or more 5.00s in one semester → TERMINATED (service obligation).
-    // Third failing grade overall (cumulative) → TERMINATED.
-    // NEW RULE: If scholar enters Year 3+ with 2 unresolved 5.00s still on record
-    // (i.e. the 2 previous failed grades have NOT yet been retaken and passed)
-    // and receives any additional 5.00 → TERMINATED.
     else {
+      // ── THIRD, FOURTH YEAR AND BEYOND ────────────────────────────
       if (f >= 2) {
-        // 2+ failures in one semester → always TERMINATED
-        semStatus = "TERMINATED";
-        policy = rules.deficiencyPolicy.find(p=>p.trigger==="two_fails");
-      } else if (f >= 1 && cumulativeUnresolved5 >= 2) {
-        // 3rd unresolved 5.00 in Year 3+: the 2 prior failed grades were never passed → TERMINATED
-        semStatus = "TERMINATED";
-        policy = {
-          trigger:"third_unresolved_fail_y3",
-          rule:`3rd unresolved failing grade (5.00) in Year ${semYr} — 2 previous 5.00 grades have not been retaken and passed`,
-          action:"Consult DOST-SEI scholarship office immediately. Service obligation applies.",
-          status:"TERMINATED",
-        };
-      } else if (f === 1 && hasPriorDeficiency) {
-        // 1 failure + prior deficiency in 3rd/4th year → TERMINATED
-        // This is the "third failing grade" scenario from the FAQ
-        semStatus = "TERMINATED";
-        policy = {
-          trigger:"third_fail_cumulative",
-          rule:"Failure with prior deficiency in Year 3/4 (cumulative termination threshold)",
-          action:"Consult DOST-SEI scholarship office immediately. Service obligation may apply.",
-          status:"TERMINATED",
-        };
-      } else if (f === 1) {
-        // 1 failure, no prior deficiency → PROBATION
-        semStatus = "PROBATION";
-        policy = rules.deficiencyPolicy.find(p=>p.trigger==="one_fail_y1s1");
-      } else if (inc >= 1 && hasPriorDeficiency) {
-        semStatus = "PARTIAL";
-        policy = rules.deficiencyPolicy.find(p=>p.trigger==="inc_prev");
-      } else if (drp > 3 && hasPriorDeficiency) {
-        semStatus = "PARTIAL";
-        policy = rules.deficiencyPolicy.find(p=>p.trigger==="drop_gt3");
-      } else if (drp > 3) {
-        semStatus = "PROBATION";
-        policy = rules.deficiencyPolicy.find(p=>p.trigger==="drop_gt3");
-      } else if (gwa !== null && gwa > gwaReq && hasPriorDeficiency) {
-        semStatus = "PARTIAL";
-        policy = rules.deficiencyPolicy.find(p=>p.trigger==="gwa_miss_big");
-      } else if (gwa !== null && gwa > gwaReq + 0.10) {
-        semStatus = "PROBATION";
-        policy = rules.deficiencyPolicy.find(p=>p.trigger==="gwa_miss_big");
-      } else if (gwa !== null && gwa > gwaReq) {
-        semStatus = "CONTINUED";
-        policy = rules.deficiencyPolicy.find(p=>p.trigger==="gwa_miss_small");
+        push(dostRule("Third/Fourth Year","y34_two_fails"));
+      } else {
+        if (f === 1) {
+          if (newFailOrdinal === 2) {
+            push(dostRule("Third/Fourth Year","y34_2nd_fail"));
+          } else if (newFailOrdinal >= 3) {
+            push(unresolvedPriorCount >= 1
+              ? dostRule("Third/Fourth Year","y34_3rd_fail_unresolved")
+              : dostRule("Third/Fourth Year","y34_3rd_fail_resolved"));
+          } else {
+            push(hasPriorDeficiency ? dostRule("Third/Fourth Year","y34_1fail_def") : dostRule("Third/Fourth Year","y34_1fail_nodef"));
+          }
+        }
+        if (inc === 1) {
+          push(hasPriorDeficiency ? dostRule("Third/Fourth Year","y34_1inc_def") : dostRule("Third/Fourth Year","y34_1inc_nodef"));
+        } else if (inc >= 2) {
+          push(hasPriorDeficiency ? dostRule("Third/Fourth Year","y34_2inc_def") : dostRule("Third/Fourth Year","y34_2inc_nodef"));
+        }
+        if (drp > 3) push(hasPriorDeficiency ? dostRule("Third/Fourth Year","y34_drop_def") : dostRule("Third/Fourth Year","y34_drop_nodef"));
+        if (gwa !== null && gwa > gwaReq) push(hasPriorDeficiency ? dostRule("Third/Fourth Year","y34_gwa_def") : dostRule("Third/Fourth Year","y34_gwa_nodef"));
       }
+      if (candidates.length === 0) push(dostRule("Third/Fourth Year","y34_good_standing"));
     }
 
-    // Update cumulative deficiency flag: if this semester produced a deficiency,
-    // mark it so subsequent semesters can escalate accordingly
-    if (STATUS_RANK[semStatus] >= STATUS_RANK["PROBATION"]) {
-      hasPriorDeficiency = true;
+    // Worst candidate this semester wins.
+    let semStatus = "CONTINUED", semPolicy = null;
+    if (candidates.length) {
+      const maxRank = Math.max(...candidates.map(c => STATUS_RANK[c.status]));
+      const worst = candidates.filter(c => STATUS_RANK[c.status] === maxRank);
+      semStatus = worst[0].status;
+      semPolicy = worst[0];
     }
+    semStatuses.push({status: semStatus, isGradYear: !!semPolicy?.isGradYear, rule: semPolicy?.rule, action: semPolicy?.action});
 
-    // Update the cumulative count of UNRESOLVED 5.00 failures from this semester.
-    // A failure is "unresolved" if the latest valid attempt (original or retake) is
-    // still 5.00 — meaning the scholar has NOT yet passed a retake for that subject.
-    sd.fails5.forEach(code => {
-      const latest = getLatestValidAttempt(code);
-      if (latest.grade.num === 5.00) cumulativeUnresolved5++;
-    });
-
-    // Worst status across all semesters is the final result
+    // Capture worst status across the whole timeline.
     if (STATUS_RANK[semStatus] > STATUS_RANK[finalStatus]) {
       finalStatus = semStatus;
       triggerSem = sd;
-      matchedPolicy = policy;
+      matchedPolicy = semPolicy;
+      triggerHadPriorDeficiency = hasPriorDeficiency;
     }
+
+    // Update sticky prior-deficiency flag — but ONLY when a rule was
+    // actually violated and the status changed as a result. Several
+    // matrix rules (a single 4.00/INC or 5.00 alone in Year 1 Sem 2; a
+    // single 4.00/INC in Year 3/4 with no prior deficiency) explicitly
+    // resolve to CONTINUED — meaning nothing was actually penalized —
+    // so they must NOT count as establishing a "previous deficiency"
+    // for later semesters. Using the semester's OWN resulting status
+    // (rather than the raw grade event) is what makes this correct.
+    // Graduating year is excluded — its outcomes don't carry over.
+    if (!isGradSem && semStatus !== "CONTINUED") {
+      hasPriorDeficiency = true;
+    }
+
+    // Record new fails into chronological history for ordinal tracking.
+    sd.fails5.forEach(code => failHistory.push({code}));
   }
 
-  // Build reason string
-  const lastSD = semData[semData.length-1];
+  // ── BUILD REASON STRING ──────────────────────────────────────────
+  const isGradYearPolicy = matchedPolicy?.isGradYear === true;
   let reason = "", action = "", rule = "";
 
   if (finalStatus === "CONTINUED") {
     reason = "No scholarship violations detected. All grade requirements are currently satisfied.";
-    rule = rules.gradeReqByYear[Math.min(yr,5)] || "Passing grades in all subjects.";
+    rule   = rules.gradeReqByYear[Math.min(autoYearEnjoyed,5)] || "Passing grades in all subjects.";
     action = "Continue current academic standing. Maintain GWA ≤ 2.75 each semester.";
   } else if (matchedPolicy) {
-    rule = matchedPolicy.rule;
+    rule   = matchedPolicy.rule;
     action = matchedPolicy.action;
-    if (finalStatus === "TERMINATED") {
-      reason = `Scholarship termination condition triggered: ${triggerSem?.fails5?.length||0} failing grade(s) of 5.00 in a single semester (Year ${triggerSem?.y} Sem ${triggerSem?.s}).`;
+    if (isGradYearPolicy) {
+      reason = "Deficiency incurred in the Graduating Year. Status: Continued to Submit Grades — submit all required documents to DOST-SEI.";
+    } else if (finalStatus === "TERMINATED") {
+      reason = `Scholarship termination condition triggered: ${matchedPolicy.rule} (Scholarship Year ${triggerSem?.scholYear}, ${triggerSem?.label}).`;
     } else if (finalStatus === "PROBATION") {
       const issues = [];
-      if (triggerSem?.fails5?.length) issues.push(`${triggerSem.fails5.length} failing grade(s) of 5.00 (${triggerSem.fails5.join(", ")})`);
-      if (triggerSem?.droppedU > 3) issues.push(`${triggerSem.droppedU} units dropped (>3 limit)`);
+      if (triggerSem?.fails5?.length)  issues.push(`${triggerSem.fails5.length} failing grade(s) of 5.00 (${triggerSem.fails5.join(", ")})`);
+      if (triggerSem?.incs4?.length)   issues.push(`${triggerSem.incs4.length} grade(s) of 4.00/INC (${triggerSem.incs4.join(", ")})`);
+      if (triggerSem?.droppedU > 3)    issues.push(`${triggerSem.droppedU} units dropped (>3 limit)`);
       if (triggerSem?.semGwa > gwaReq) issues.push(`GWA ${triggerSem.semGwa.toFixed(2)} (required ≤ ${gwaReq})`);
-      reason = `One or more scholarship condition(s) violated in Year ${triggerSem?.y} Sem ${triggerSem?.s}: ${issues.join("; ")}.`;
+      reason = `Scholarship condition violated in Scholarship Year ${triggerSem?.scholYear} (${triggerSem?.label}): ${issues.join("; ")}.`;
     } else if (finalStatus === "PARTIAL") {
-      reason = `Scholar remains eligible but qualifies for reduced benefits. Trigger: ${matchedPolicy.rule} — previous deficiency on record: ${pd?"Yes":"No"}.`;
+      reason = `Scholar is eligible for reduced benefits. Trigger: ${matchedPolicy.rule} — previous deficiency on record: ${triggerHadPriorDeficiency?"Yes":"No"}.`;
     }
   }
 
-  const currentGwa = computeGWA();
+  const currentGwa = computeGWA(null, useSimMode);
 
   return {
     status: finalStatus,
     gwa: currentGwa,
     reason, rule, action,
     semData,
+    semStatuses,
     triggerSem,
     matchedPolicy,
     rules,
+    yearEnjoyed: autoYearEnjoyed,
+    prevDeficiency: hasPriorDeficiency,
     lastEvalDate: new Date().toLocaleDateString("en-PH",{year:"numeric",month:"long",day:"numeric"}),
   };
 }
@@ -1574,7 +1615,7 @@ function renderScholarship(el) {
   const displayName = isCustom ? (customName || "Custom Scholarship") : (isDOST ? "DOST-SEI RA 7687" : "No Scholarship");
 
   // Guard: only evaluate if DOST, otherwise use N/A
-  let eval_ = { status:"N/A", reason:"", rule:"", action:"", semData:[], lastEvalDate:"" };
+  let eval_ = { status:"N/A", reason:"", rule:"", action:"", semData:[], semStatuses:[], lastEvalDate:"", yearEnjoyed:1, prevDeficiency:false };
   try {
     if (isDOST) eval_ = evaluateScholarshipStatus(false);
   } catch(e) { /* safe fallback */ }
@@ -1622,18 +1663,15 @@ function renderScholarship(el) {
           onblur="saveState();renderTab('scholarship')">
       </div>` : ""}
       ${isDOST ? `<div>
-        <div style="font-size:12px;color:#6b7280;margin-bottom:5px">Year in scholarship</div>
-        <select onchange="STATE.yearInScholarship=Number(this.value);saveState();renderTab('scholarship')" style="padding:5px 8px;border-radius:7px;border:1px solid #d1d5db;font-size:12px;width:100%">
-          ${[1,2,3,4,5].map(y=>`<option value="${y}" ${STATE.yearInScholarship===y?"selected":""}>${y===5?"Graduating Year":"Year "+y}</option>`).join("")}
-        </select>
+        <div style="font-size:12px;color:#6b7280;margin-bottom:5px">Year in scholarship <span style="color:#9ca3af">(auto-detected)</span></div>
+        <div style="padding:5px 8px;border-radius:7px;border:1px solid #e5e7eb;background:#f8fafc;font-size:12px;font-weight:600;color:#374151">${eval_.yearEnjoyed===5?"Graduating Year":"Year "+eval_.yearEnjoyed}</div>
       </div>
       <div>
-        <div style="font-size:12px;color:#6b7280;margin-bottom:5px">Previous deficiency?</div>
-        <div style="display:flex;gap:6px">
-          ${["Yes","No"].map(v=>`<button onclick="STATE.prevDeficiency=${v==='Yes'};saveState();renderTab('scholarship')" style="padding:5px 14px;border-radius:7px;border:1px solid ${(STATE.prevDeficiency===(v==='Yes'))?"#dc2626":"#d1d5db"};background:${(STATE.prevDeficiency===(v==='Yes'))?"#dc2626":"#fff"};color:${(STATE.prevDeficiency===(v==='Yes'))?"#fff":"#374151"};cursor:pointer;font-size:12px">${v}</button>`).join("")}
-        </div>
+        <div style="font-size:12px;color:#6b7280;margin-bottom:5px">Previous deficiency? <span style="color:#9ca3af">(auto-detected)</span></div>
+        <div style="padding:5px 8px;border-radius:7px;border:1px solid ${eval_.prevDeficiency?"#fca5a5":"#e5e7eb"};background:${eval_.prevDeficiency?"#fef2f2":"#f8fafc"};font-size:12px;font-weight:600;color:${eval_.prevDeficiency?"#dc2626":"#374151"}">${eval_.prevDeficiency?"Yes":"No"}</div>
       </div>` : ""}
     </div>
+    ${isDOST ? `<div style="font-size:10px;color:#9ca3af;margin-top:8px">Both values are derived automatically from your grade records and recompute live — Previous Deficiency turns on only once a semester's status has genuinely been elevated above Continued, and turns back off if you edit grades so no such semester remains.</div>` : ""}
   </div>`;
 
   // ── CUSTOM SCHOLARSHIP VIEW
@@ -1686,14 +1724,18 @@ function renderScholarship(el) {
 
   // ══ SUB-TAB: STATUS
   if (subTab === "status") {
-    html += `<div class="status-card" style="background:${sui.bg};border-color:${sui.border}">
+    const isGradYearResult = eval_.matchedPolicy?.isGradYear === true;
+    const displaySui = isGradYearResult
+      ? {label:"Continued to Submit Grades",color:"#0369a1",bg:"#e0f2fe",border:"#7dd3fc",icon:"📋"}
+      : sui;
+    html += `<div class="status-card" style="background:${displaySui.bg};border-color:${displaySui.border}">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:10px">
         <div>
-          <div style="font-size:11px;font-weight:700;color:${sui.color};margin-bottom:4px;text-transform:uppercase;letter-spacing:.5px">Current Status — ${rules.label.split("—")[1]?.trim()||""}</div>
-          <div style="font-size:22px;font-weight:800;color:${sui.color};margin-bottom:6px">${sui.icon} ${sui.label}</div>
+          <div style="font-size:11px;font-weight:700;color:${displaySui.color};margin-bottom:4px;text-transform:uppercase;letter-spacing:.5px">Current Status — ${rules.label.split("—")[1]?.trim()||""}</div>
+          <div style="font-size:22px;font-weight:800;color:${displaySui.color};margin-bottom:6px">${displaySui.icon} ${displaySui.label}</div>
           <div style="font-size:12px;color:#374151;line-height:1.6;max-width:540px">${eval_.reason}</div>
-          ${eval_.status==="PARTIAL"?`<div style="margin-top:10px;background:rgba(255,255,255,.7);border-radius:8px;padding:10px 12px;border:1px solid ${sui.border}">
-            <div style="font-size:11px;font-weight:700;color:${sui.color};margin-bottom:6px">💰 Partial Allowance — Financial Breakdown</div>
+          ${eval_.status==="PARTIAL"?`<div style="margin-top:10px;background:rgba(255,255,255,.7);border-radius:8px;padding:10px 12px;border:1px solid ${displaySui.border}">
+            <div style="font-size:11px;font-weight:700;color:${displaySui.color};margin-bottom:6px">💰 Partial Allowance — Financial Breakdown</div>
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;font-size:11px">
               <div><div style="color:#6b7280">Monthly Stipend Released</div><b style="color:#16a34a">₱${(rules.stipend.monthly*0.5).toLocaleString()}/mo</b> <span style="color:#9ca3af">(50%)</span></div>
               <div><div style="color:#6b7280">Monthly Stipend On Hold</div><b style="color:#dc2626">₱${(rules.stipend.monthly*0.5).toLocaleString()}/mo</b> <span style="color:#9ca3af">(50%)</span></div>
@@ -1727,8 +1769,8 @@ function renderScholarship(el) {
         <span class="rule-value">${eval_.action||"—"}</span>
       </div>
       <div class="rule-row">
-        <span class="rule-label">Grade Requirement (Year ${Math.min(STATE.yearInScholarship,5)})</span>
-        <span class="rule-value">${rules.gradeReqByYear[Math.min(STATE.yearInScholarship,5)]||"—"}</span>
+        <span class="rule-label">Grade Requirement (Year ${Math.min(eval_.yearEnjoyed,5)})</span>
+        <span class="rule-value">${rules.gradeReqByYear[Math.min(eval_.yearEnjoyed,5)]||"—"}</span>
       </div>
       <div class="rule-row">
         <span class="rule-label">Last Evaluated</span>
@@ -1743,21 +1785,24 @@ function renderScholarship(el) {
           <table class="dost-table">
             <thead><tr><th>Semester</th><th>Sem GWA</th><th>Fails (5.00)</th><th>INC (4.00)</th><th>Dropped</th><th>Status</th></tr></thead>
             <tbody>
-              ${eval_.semData.map(sd=>{
-                let rowStatus="CONTINUED";
-                if(sd.fails5.length>=2) rowStatus="TERMINATED";
-                else if(sd.fails5.length===1) rowStatus=STATE.prevDeficiency?"PARTIAL":"PROBATION";
-                else if(sd.incs4.length>=1&&STATE.prevDeficiency) rowStatus="PARTIAL";
-                else if(sd.semGwa&&sd.semGwa>rules.gwaReq.year1annual+0.10) rowStatus="PROBATION";
-                else if(sd.droppedU>3) rowStatus=STATE.prevDeficiency?"PARTIAL":"PROBATION";
-                const rsui=SCHOL_STATUS_UI[rowStatus];
+              ${eval_.semData.map((sd,sdIdx)=>{
+                // Per-row status comes directly from the evaluator's semStatuses —
+                // the SAME engine that computes the overall result above, so this
+                // table can never drift out of sync with the official decision matrix.
+                const rowResult = eval_.semStatuses[sdIdx] || {status:"CONTINUED"};
+                const rsui = rowResult.isGradYear
+                  ? {label:"Continued to Submit Grades",color:"#0369a1",bg:"#e0f2fe",border:"#7dd3fc",icon:"📋"}
+                  : (SCHOL_STATUS_UI[rowResult.status]||SCHOL_STATUS_UI["CONTINUED"]);
                 return `<tr>
-                  <td>Year ${sd.y} Sem ${sd.s}</td>
+                  <td>
+                    <div style="font-size:11px;font-weight:600;color:#374151">${sd.label}</div>
+                    <div style="font-size:10px;color:#9ca3af">Scholarship Year ${sd.scholYear}${sd.isGradYear?" · <b style='color:#0369a1'>Graduating Year</b>":""}</div>
+                  </td>
                   <td style="font-weight:600;color:${sd.semGwa&&sd.semGwa<=2.75?"#16a34a":"#dc2626"}">${sd.semGwa?sd.semGwa.toFixed(2):"—"}</td>
                   <td style="color:${sd.fails5.length?"#dc2626":"#374151"}">${sd.fails5.length?sd.fails5.join(", "):"None"}</td>
                   <td style="color:${sd.incs4.length?"#9333ea":"#374151"}">${sd.incs4.length?sd.incs4.join(", "):"None"}</td>
                   <td style="color:${sd.droppedU>3?"#dc2626":"#374151"}">${sd.droppedU}u</td>
-                  <td><span class="status-badge" style="background:${rsui.bg};color:${rsui.color};border:1px solid ${rsui.border}">${rsui.label}</span></td>
+                  <td><span class="status-badge" style="background:${rsui.bg};color:${rsui.color};border:1px solid ${rsui.border}" title="${rowResult.rule||""}">${rsui.label}</span></td>
                 </tr>`;
               }).join("")}
             </tbody>
@@ -1790,7 +1835,7 @@ function renderScholarship(el) {
       </div>
       <div class="detail-item" style="border-top:3px solid #1d4ed8">
         <div class="di-label">Year in Scholarship</div>
-        <div class="di-value">Year ${STATE.yearInScholarship===5?"(Graduating)":STATE.yearInScholarship}</div>
+        <div class="di-value">Year ${eval_.yearEnjoyed===5?"(Graduating)":eval_.yearEnjoyed}</div>
       </div>
       <div class="detail-item" style="border-top:3px solid #065f46">
         <div class="di-label">Current GWA</div>
@@ -1810,7 +1855,7 @@ function renderScholarship(el) {
       </div>
       <div class="detail-item" style="border-top:3px solid #374151">
         <div class="di-label">Next Evaluation Basis</div>
-        <div class="di-value" style="font-size:11px">${STATE.yearInScholarship<=1?"Annual GWA (both sems combined)":"Semestral GWA (each sem)"}</div>
+        <div class="di-value" style="font-size:11px">${eval_.yearEnjoyed<=1?"Annual GWA (both sems combined)":"Semestral GWA (each sem)"}</div>
       </div>
       <div class="detail-item" style="border-top:3px solid #7c3aed">
         <div class="di-label">Applicable Rule Set</div>
@@ -1884,23 +1929,29 @@ function renderScholarship(el) {
     </div>`;
 
     html += `<div class="card" style="margin-bottom:10px">
-      <div style="font-weight:700;font-size:13px;margin-bottom:10px">Academic Deficiency Policy — ${STATE.scholarshipYear} Cohort</div>
-      <div style="overflow-x:auto">
-        <table class="dost-table">
-          <thead><tr><th>Deficiency / Trigger</th><th>Resulting Status</th><th>Applicable Rule</th><th>Recommended Action</th></tr></thead>
-          <tbody>
-            ${rules.deficiencyPolicy.map(p=>{
-              const pui = SCHOL_STATUS_UI[p.status]||SCHOL_STATUS_UI["N/A"];
-              return `<tr>
-                <td style="font-size:11px">${p.rule}</td>
-                <td><span class="status-badge" style="background:${pui.bg};color:${pui.color};border:1px solid ${pui.border};font-size:10px">${pui.label}</span></td>
-                <td style="font-size:11px;color:#7B1113;font-weight:600">${p.rule}</td>
-                <td style="font-size:11px;color:#374151">${p.action}</td>
-              </tr>`;
-            }).join("")}
-          </tbody>
-        </table>
-      </div>
+      <div style="font-weight:700;font-size:13px;margin-bottom:4px">Academic Deficiency Decision Matrix</div>
+      <div style="font-size:11px;color:#9ca3af;margin-bottom:10px">Cohort-invariant — applies the same way across all DOST-SEI cohorts. Grouped by Year Enjoyed, which is auto-detected from your grade records (no manual year selection). "With/without previous deficiency" is also auto-detected from your full grade history.</div>
+      ${Object.entries(DOST_DECISION_MATRIX).map(([yearLabel, entries])=>`
+        <div style="margin-bottom:14px">
+          <div style="font-weight:700;font-size:12px;color:#7B1113;margin-bottom:6px">${yearLabel}</div>
+          <div style="overflow-x:auto">
+            <table class="dost-table">
+              <thead><tr><th>Condition</th><th>Resulting Status</th><th>Recommended Action</th></tr></thead>
+              <tbody>
+                ${entries.map(p=>{
+                  const pui = p.isGradYear
+                    ? {label:"Continued to Submit Grades",color:"#0369a1",bg:"#e0f2fe",border:"#7dd3fc"}
+                    : (SCHOL_STATUS_UI[p.status]||SCHOL_STATUS_UI["N/A"]);
+                  return `<tr>
+                    <td style="font-size:11px">${p.rule}</td>
+                    <td><span class="status-badge" style="background:${pui.bg};color:${pui.color};border:1px solid ${pui.border};font-size:10px">${pui.label}</span></td>
+                    <td style="font-size:11px;color:#374151">${p.action}</td>
+                  </tr>`;
+                }).join("")}
+              </tbody>
+            </table>
+          </div>
+        </div>`).join("")}
     </div>`;
 
     html += `<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
@@ -1933,73 +1984,257 @@ function renderScholarship(el) {
   el.innerHTML = html;
 }
 
+const TYPE_LABEL = {
+  major:"Major", math:"Math", science:"Science", ge:"GE", ge_elective:"GE Elective",
+  nstp:"NSTP", pe:"PE", eee_elective:"EEE Elective", engg_elective:"Engg Elective",
+  free_elective:"Free Elective", custom:"Custom",
+};
+
+// Merge two evaluateScholarshipStatus() results (real + projected) into
+// one row list keyed by (scholYear, semIdx), so the What-If comparison
+// table can show both sides even when a semester only has data on ONE
+// side (e.g. simulating a grade into an otherwise-empty future term).
+function mergeSemDataForCompare(realEval, projEval) {
+  const map = new Map();
+  (realEval.semData||[]).forEach((sd,i) => {
+    const key = sd.scholYear+"-"+sd.semIdx;
+    map.set(key, {scholYear:sd.scholYear, semIdx:sd.semIdx, isGradYear:sd.isGradYear, label:sd.label, real:sd, realRow:realEval.semStatuses[i]});
+  });
+  (projEval.semData||[]).forEach((sd,i) => {
+    const key = sd.scholYear+"-"+sd.semIdx;
+    const ex = map.get(key) || {scholYear:sd.scholYear, semIdx:sd.semIdx, isGradYear:sd.isGradYear, label:sd.label};
+    ex.proj = sd; ex.projRow = projEval.semStatuses[i];
+    map.set(key, ex);
+  });
+  return Array.from(map.values()).sort((a,b)=>a.scholYear-b.scholYear||a.semIdx-b.semIdx);
+}
+// Plain-language description of what changed in one comparison row.
+function describeRowDelta(row) {
+  if (!row.real || !row.proj) return "";
+  const rf=row.real.fails5||[], pf=row.proj.fails5||[], ri=row.real.incs4||[], pi=row.proj.incs4||[];
+  const parts = [];
+  const newFails = pf.filter(c=>!rf.includes(c));
+  const newIncs = pi.filter(c=>!ri.includes(c));
+  const resolvedFails = rf.filter(c=>!pf.includes(c));
+  const resolvedIncs = ri.filter(c=>!pi.includes(c));
+  if (newFails.length) parts.push(`new 5.00: ${newFails.join(", ")}`);
+  if (newIncs.length) parts.push(`new 4.00/INC: ${newIncs.join(", ")}`);
+  if (resolvedFails.length) parts.push(`resolved 5.00: ${resolvedFails.join(", ")}`);
+  if (resolvedIncs.length) parts.push(`resolved 4.00/INC: ${resolvedIncs.join(", ")}`);
+  if (row.proj.droppedU !== row.real.droppedU) parts.push(`dropped units: ${row.real.droppedU}u → ${row.proj.droppedU}u`);
+  return parts.join(" · ");
+}
+// Small GWA/WAG delta pill. Lower is always better in the 1.00–5.00 scale.
+function deltaTag(real, sim) {
+  if (real===null || sim===null || real===undefined || sim===undefined) return `<span style="font-size:10px;color:#9ca3af">—</span>`;
+  const diff = sim - real;
+  if (Math.abs(diff) < 0.005) return `<span style="font-size:10px;color:#9ca3af">no change</span>`;
+  const improved = diff < 0;
+  return `<span style="font-size:10px;font-weight:700;color:${improved?"#16a34a":"#dc2626"}">${diff<0?"↓":"↑"} ${diff>0?"+":""}${diff.toFixed(2)}</span>`;
+}
+
 function renderWhatIf(el) {
-  const realGwa = computeGWA(null);
-  const realWag = computeWAG();
-  const simGwa = STATE.simMode ? computeGWA() : null;
-  const simWag = STATE.simMode ? computeWAG() : null;
-  const simHonors = simWag ? HONORS.find(h=>simWag>=h.min&&simWag<=h.max) : null;
+  let scholType = STATE.scholarshipType || (STATE.scholarship ? "DOST" : "None");
+  const isDOST = scholType === "DOST";
+  const simOn = !!STATE.simMode;
 
-  const coreCourses = COURSES.filter(c=>["major","math","science"].includes(c.type));
+  // Real values are now FORCED-real regardless of the global sim toggle,
+  // and Sim values are FORCED-simulated — so these are always accurate
+  // and independent of each other (previously both silently followed
+  // the same global flag, making "Real" and "Sim" identical whenever
+  // simulation happened to be on).
+  const realGwa = computeGWA(null, false);
+  const realWag = computeWAG(false);
+  const simGwa  = simOn ? computeGWA(null, true) : null;
+  const simWag  = simOn ? computeWAG(true) : null;
+  const realHonors = realWag!=null ? HONORS.find(h=>realWag>=h.min&&realWag<=h.max) : null;
+  const simHonors  = simWag!=null ? HONORS.find(h=>simWag>=h.min&&simWag<=h.max) : null;
 
-  el.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
-    <div class="section-title" style="margin:0">What-If Grade Simulator</div>
+  // DOST comparison — real is ALWAYS evaluated with useSimMode=false now
+  // (previously computeGWA() inside the evaluator silently drifted with
+  // the global toggle; fixed so "current status" is always trustworthy).
+  let realEval = {status:"N/A",reason:"",rule:"",action:"",semData:[],semStatuses:[],yearEnjoyed:1,prevDeficiency:false};
+  let projEval = {status:"N/A",reason:"",rule:"",action:"",semData:[],semStatuses:[],yearEnjoyed:1,prevDeficiency:false};
+  if (isDOST) {
+    try { realEval = evaluateScholarshipStatus(false); } catch(e) {}
+    if (simOn) { try { projEval = evaluateScholarshipStatus(true); } catch(e) { projEval = realEval; } }
+    else { projEval = realEval; }
+  }
+  const rsui = SCHOL_STATUS_UI[realEval.status]||SCHOL_STATUS_UI["N/A"];
+  const psui = SCHOL_STATUS_UI[projEval.status]||SCHOL_STATUS_UI["N/A"];
+  const statusChanged = simOn && projEval.status !== realEval.status;
+
+  // Courses with a REAL, non-no-op simulated override (selecting the
+  // same grade as the real one doesn't count — decluttered from lists).
+  const simmedCodes = simOn ? Object.keys(STATE.simGrades).filter(code => {
+    const course = COURSES.find(c=>c.code===code);
+    if (!course) return false;
+    const simG = STATE.simGrades[code];
+    const realG = STATE.grades[code] || {label:"In Progress",num:null};
+    return simG.label !== realG.label;
+  }) : [];
+
+  const buckets = buildSemBuckets().filter(b => b.key !== "custom_unassigned" && b.entries.some(e=>e.type==="course"));
+
+  el.innerHTML = `
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:8px">
+    <div class="section-title" style="margin:0">🔮 What-If Grade Simulator</div>
     <div style="display:flex;gap:8px">
-      <button onclick="toggleSimMode()" style="padding:7px 14px;border-radius:9px;border:none;background:${STATE.simMode?"#ff9800":"#7B1113"};color:#fff;font-weight:700;cursor:pointer;font-size:12px">${STATE.simMode?"⚡ Simulation ON — Click to Disable":"🔮 Enable Simulation"}</button>
-      ${STATE.simMode?`<button onclick="clearSimGrades()" style="padding:7px 12px;border-radius:9px;border:1px solid #d1d5db;background:#fff;cursor:pointer;font-size:12px">Clear All Sim</button>`:""}
+      <button onclick="toggleSimMode()" style="padding:7px 14px;border-radius:9px;border:none;background:${simOn?"#ff9800":"#7B1113"};color:#fff;font-weight:700;cursor:pointer;font-size:12px">${simOn?"⚡ Simulation ON — Click to Disable":"🔮 Enable Simulation"}</button>
+      ${simOn?`<button onclick="clearSimGrades()" style="padding:7px 12px;border-radius:9px;border:1px solid #d1d5db;background:#fff;cursor:pointer;font-size:12px">Clear All Sim</button>`:""}
     </div>
   </div>
-  ${STATE.simMode?`<div style="background:#fff3cd;border:1px solid #ffc107;border-radius:10px;padding:10px 14px;margin-bottom:12px;font-size:12px">⚡ Simulation mode active. Changes here do NOT affect your real grades. All tabs reflect simulation values.</div>`:""}
-  <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px">
+
+  ${simOn
+    ? `<div style="background:#fff3cd;border:1px solid #ffc107;border-radius:10px;padding:10px 14px;margin-bottom:12px;font-size:12px">⚡ Simulation active — <b>${simmedCodes.length} course${simmedCodes.length===1?"":"s"}</b> simulated. Changes here do NOT affect your real grades; every tab in the app previews the simulated values while this is on.</div>`
+    : `<div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;padding:10px 14px;margin-bottom:12px;font-size:12px;color:#1e3a8a">💡 Enable Simulation to test "what if I get this grade" scenarios — you'll see projected GWA, WAG, Honors, and Scholarship status update live, side-by-side with your real record. Nothing is saved to your real grades.</div>`
+  }
+
+  <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:12px">
     ${sc_card("Real GWA",realGwa?realGwa.toFixed(2):"—","All graded courses","#374151")}
-    ${sc_card("Sim GWA",STATE.simMode&&simGwa?simGwa.toFixed(2):"—",STATE.simMode?"Simulation result":"Enable simulation","#ff9800")}
+    ${sc_card("Sim GWA",simOn&&simGwa?simGwa.toFixed(2):"—",simOn?deltaTag(realGwa,simGwa):"Enable simulation","#ff9800")}
     ${sc_card("Real WAG",realWag?realWag.toFixed(2):"—","Weighted avg (no PE/NSTP)","#374151")}
-    ${sc_card("Sim WAG",STATE.simMode&&simWag?simWag.toFixed(2):"—",STATE.simMode?"Honors eligible":"Enable simulation","#2563eb")}
+    ${sc_card("Sim WAG",simOn&&simWag?simWag.toFixed(2):"—",simOn?deltaTag(realWag,simWag):"Enable simulation","#2563eb")}
   </div>
-  ${STATE.simMode&&simWag?`<div style="background:#fefce8;border:1px solid #fde047;border-radius:10px;padding:10px 14px;margin-bottom:12px;font-size:12px"><span style="font-weight:700">Honors Projection: </span>${simHonors?simHonors.label:"WAG "+simWag.toFixed(2)+" — does not qualify for honors"}<br><span style="color:#6b7280">Thresholds: Cum Laude ≤ 1.75 | Magna ≤ 1.45 | Summa ≤ 1.20</span></div>`:""}
-  ${STATE.simMode&&STATE.scholarship?`
-  <div style="margin-bottom:12px">${(()=>{
-    let projEval = {status:"N/A",reason:"",rule:"",action:"",semData:[]};
-    let realEval = {status:"N/A",reason:"",rule:"",action:"",semData:[]};
-    try { projEval = evaluateScholarshipStatus(true); } catch(e) {}
-    try { realEval = evaluateScholarshipStatus(false); } catch(e) {}
-    const psui = SCHOL_STATUS_UI[projEval.status]||SCHOL_STATUS_UI["N/A"];
-    const rsui = SCHOL_STATUS_UI[realEval.status]||SCHOL_STATUS_UI["N/A"];
-    const changed = projEval.status !== realEval.status;
-    return `<div class="sim-schol-box" style="background:${psui.bg};border-color:${psui.border}">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;flex-wrap:wrap;gap:6px">
-        <span style="font-size:12px;font-weight:700;color:${psui.color}">🔮 Projected Scholarship Status</span>
-        ${changed?`<span style="font-size:10px;background:#fff;padding:2px 7px;border-radius:6px;border:1px solid ${psui.border};color:#6b7280">Changed from: <b style="color:${rsui.color}">${rsui.label}</b></span>`:`<span style="font-size:10px;color:#6b7280">No change from current status</span>`}
-      </div>
-      <div style="font-size:18px;font-weight:800;color:${psui.color};margin-bottom:5px">${psui.icon} ${psui.label}</div>
-      <div style="font-size:11px;color:#374151;margin-bottom:4px">${projEval.reason}</div>
-      ${projEval.rule&&projEval.status!=="CONTINUED"?`<div style="font-size:10px;background:rgba(255,255,255,.6);padding:4px 8px;border-radius:5px;color:#374151;margin-top:4px"><b>Rule:</b> ${projEval.rule} &nbsp;|&nbsp; <b>Action:</b> ${projEval.action}</div>`:""}
-      <div style="font-size:10px;color:#6b7280;margin-top:6px">Scholarship Year: ${STATE.scholarshipYear} Cohort · Year ${STATE.yearInScholarship} · Prev deficiency: ${STATE.prevDeficiency?"Yes":"No"}</div>
-    </div>`;
-  })()}</div>`:""}
+
   <div class="card">
-    <div style="font-weight:700;font-size:13px;margin-bottom:12px">Adjust grades for simulation ${STATE.simMode?"":"(enable simulation first)"}</div>
-    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:7px">
-      ${coreCourses.map(c=>{
-        const realG = STATE.grades[c.code]||{label:"In Progress",num:null};
-        const simG = STATE.simGrades[c.code];
-        const tc = TYPE_COLOR[c.type]||"#374151";
-        const tb = TYPE_BG[c.type]||"#f9fafb";
-        return `<div class="sim-row" style="background:${tb};border:1px solid ${tc}18">
-          <div>
-            <span style="font-weight:700;font-size:11px;color:${tc}">${c.code}</span>
-            <span style="font-size:10px;color:#6b7280;margin-left:4px">${c.title.length>26?c.title.slice(0,26)+"…":c.title}</span>
+    <div style="font-weight:700;font-size:13px;margin-bottom:8px">🎖️ Latin Honors Projection</div>
+    <div style="display:grid;grid-template-columns:${simOn?"1fr 1fr":"1fr"};gap:10px">
+      <div style="background:#f8fafc;border-radius:8px;padding:10px 12px;border:1px solid #e5e7eb">
+        <div style="font-size:10px;color:#9ca3af;margin-bottom:3px">CURRENT (Real WAG)</div>
+        <div style="font-size:13px;font-weight:700;color:${realHonors?"#16a34a":"#6b7280"}">${realHonors?realHonors.label:(realWag?"WAG "+realWag.toFixed(2)+" — no honors yet":"Not enough graded courses")}</div>
+      </div>
+      ${simOn?`<div style="background:#fff8ec;border-radius:8px;padding:10px 12px;border:1px solid #fde68a">
+        <div style="font-size:10px;color:#b45309;margin-bottom:3px">PROJECTED (Sim WAG)</div>
+        <div style="font-size:13px;font-weight:700;color:${simHonors?"#16a34a":"#6b7280"}">${simHonors?simHonors.label:(simWag?"WAG "+simWag.toFixed(2)+" — no honors yet":"Not enough graded courses")}</div>
+      </div>`:""}
+    </div>
+    <div style="font-size:10px;color:#9ca3af;margin-top:8px">Thresholds: Summa ≤ 1.20 · Magna ≤ 1.45 · Cum Laude ≤ 1.75 (WAG must also meet residency/unit rules)</div>
+  </div>
+
+  ${isDOST ? `
+  <div class="card">
+    <div style="font-weight:700;font-size:13px;margin-bottom:10px">🏆 Scholarship Status Comparison</div>
+    <div style="display:grid;grid-template-columns:${simOn?"1fr auto 1fr":"1fr"};gap:10px;align-items:center">
+      <div class="sim-schol-box" style="background:${rsui.bg};border-color:${rsui.border};margin-bottom:0">
+        <div style="font-size:10px;color:#6b7280;margin-bottom:4px">CURRENT STATUS</div>
+        <div style="font-size:16px;font-weight:800;color:${rsui.color};margin-bottom:4px">${rsui.icon} ${rsui.label}</div>
+        <div style="font-size:11px;color:#374151">${realEval.reason||"—"}</div>
+      </div>
+      ${simOn?`<div style="font-size:20px;color:#9ca3af">→</div>
+      <div class="sim-schol-box" style="background:${psui.bg};border-color:${psui.border};margin-bottom:0">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+          <span style="font-size:10px;color:#6b7280">PROJECTED STATUS</span>
+          ${statusChanged?`<span style="font-size:9px;background:#fff;padding:2px 6px;border-radius:5px;border:1px solid ${psui.border};color:${psui.color};font-weight:700">CHANGED</span>`:`<span style="font-size:9px;color:#9ca3af">no change</span>`}
+        </div>
+        <div style="font-size:16px;font-weight:800;color:${psui.color};margin-bottom:4px">${psui.icon} ${psui.label}</div>
+        <div style="font-size:11px;color:#374151">${projEval.reason||"—"}</div>
+        ${projEval.rule&&projEval.status!=="CONTINUED"?`<div style="font-size:10px;background:rgba(255,255,255,.6);padding:4px 8px;border-radius:5px;color:#374151;margin-top:6px"><b>Rule:</b> ${projEval.rule}<br><b>Action:</b> ${projEval.action}</div>`:""}
+      </div>`:""}
+    </div>
+    <div style="display:flex;gap:14px;flex-wrap:wrap;font-size:10px;color:#6b7280;margin-top:10px;padding-top:10px;border-top:1px solid #f3f4f6">
+      <span>Year Enjoyed: <b style="color:#374151">${projEval.yearEnjoyed===5?"Graduating":projEval.yearEnjoyed}</b>${simOn&&projEval.yearEnjoyed!==realEval.yearEnjoyed?` <span style="color:#ea580c">(was ${realEval.yearEnjoyed===5?"Graduating":realEval.yearEnjoyed})</span>`:""}</span>
+      <span>Previous Deficiency: <b style="color:#374151">${projEval.prevDeficiency?"Yes":"No"}</b>${simOn&&projEval.prevDeficiency!==realEval.prevDeficiency?` <span style="color:#ea580c">(was ${realEval.prevDeficiency?"Yes":"No"})</span>`:""}</span>
+    </div>
+  </div>
+
+  ${simOn ? (()=>{
+    const rows = mergeSemDataForCompare(realEval, projEval);
+    if (rows.length===0) return "";
+    return `<div class="card">
+      <div style="font-weight:700;font-size:13px;margin-bottom:10px">📋 Per-Semester Comparison</div>
+      <div style="overflow-x:auto">
+        <table class="dost-table">
+          <thead><tr><th>Semester</th><th>Current Status</th><th>Projected Status</th><th>What Changed</th></tr></thead>
+          <tbody>
+            ${rows.map(row=>{
+              const rStat = row.realRow?.status || null;
+              const pStat = row.projRow?.status || null;
+              const rui = rStat ? (row.realRow?.isGradYear?{label:"Continued to Submit Grades",color:"#0369a1",bg:"#e0f2fe",border:"#7dd3fc"}:(SCHOL_STATUS_UI[rStat]||SCHOL_STATUS_UI.CONTINUED)) : null;
+              const pui = pStat ? (row.projRow?.isGradYear?{label:"Continued to Submit Grades",color:"#0369a1",bg:"#e0f2fe",border:"#7dd3fc"}:(SCHOL_STATUS_UI[pStat]||SCHOL_STATUS_UI.CONTINUED)) : null;
+              const changed = rStat !== pStat;
+              const delta = describeRowDelta(row);
+              return `<tr style="${changed?"background:#fff8ec":""}">
+                <td>
+                  <div style="font-size:11px;font-weight:600;color:#374151">${row.label}</div>
+                  <div style="font-size:10px;color:#9ca3af">Scholarship Year ${row.scholYear}${row.isGradYear?" · Graduating":""}</div>
+                </td>
+                <td>${rui?`<span class="status-badge" style="background:${rui.bg};color:${rui.color};border:1px solid ${rui.border};font-size:10px">${rui.label}</span>`:`<span style="font-size:10px;color:#d1d5db">not yet reached</span>`}</td>
+                <td>${pui?`<span class="status-badge" style="background:${pui.bg};color:${pui.color};border:1px solid ${pui.border};font-size:10px">${pui.label}</span>`:`<span style="font-size:10px;color:#d1d5db">—</span>`}</td>
+                <td style="font-size:10px;color:${changed?"#c2410c":"#9ca3af"};font-weight:${changed?"600":"400"}">${delta||(changed?"":"—")}</td>
+              </tr>`;
+            }).join("")}
+          </tbody>
+        </table>
+      </div>
+    </div>`;
+  })() : ""}
+  ` : ""}
+
+  ${simOn && simmedCodes.length>0 ? `
+  <div class="card">
+    <div style="font-weight:700;font-size:13px;margin-bottom:10px">✏️ What's Being Simulated (${simmedCodes.length})</div>
+    <div style="display:flex;flex-direction:column;gap:5px">
+      ${simmedCodes.map(code=>{
+        const course = COURSES.find(c=>c.code===code);
+        const realG = STATE.grades[code]||{label:"In Progress",num:null};
+        const simG = STATE.simGrades[code];
+        return `<div class="sim-row" style="background:#fff8ec;border:1px solid #fde68a">
+          <div style="display:flex;align-items:center;gap:8px">
+            <span style="font-weight:700;font-size:11px;color:#7B1113">${course.code}</span>
+            <span style="font-size:10px;color:#6b7280">${course.title}</span>
           </div>
-          <div style="display:flex;align-items:center;gap:5px">
+          <div style="display:flex;align-items:center;gap:6px">
             <span style="font-size:10px;color:${gradeColor(realG)};font-weight:600">${realG.label}</span>
-            ${STATE.simMode?`<span style="font-size:10px;color:#6b7280">→</span>
-            <select onchange="setSimGrade('${c.code}',this.value)" style="padding:3px 5px;border-radius:6px;border:1px solid ${simG?"#ff9800":"#d1d5db"};font-size:10px;background:${simG?"#fff3cd":"#fff"};width:90px">
-              ${GRADE_OPTIONS.map(go=>`<option value="${go.label}" ${(simG?simG.label:realG.label)===go.label?"selected":""}>${go.label}</option>`).join("")}
-            </select>`:""}
+            <span style="font-size:10px;color:#9ca3af">→</span>
+            <span style="font-size:10px;color:${gradeColor(simG)};font-weight:700">${simG.label}</span>
+            <button onclick="clearSimGrade('${code}')" title="Reset to real grade" style="padding:2px 7px;border-radius:5px;border:1px solid #fca5a5;background:transparent;color:#dc2626;cursor:pointer;font-size:10px;font-family:inherit">↺</button>
           </div>
         </div>`;
       }).join("")}
     </div>
+  </div>` : ""}
+
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px">
+      <div style="font-weight:700;font-size:13px">📚 Adjust Grades by Semester ${simOn?"":"<span style='font-weight:400;color:#9ca3af;font-size:11px'>(enable simulation to edit)</span>"}</div>
+    </div>
+    ${buckets.map(bucket=>{
+      const courses = bucket.entries.filter(e=>e.type==="course").map(e=>e.course);
+      const bucketHasSim = simOn && courses.some(c=>simmedCodes.includes(c.code));
+      return `<details class="wi-group" open>
+        <summary class="wi-group-hdr">
+          <span>${bucket.label}${bucketHasSim?` <span class="wi-changed-badge">${courses.filter(c=>simmedCodes.includes(c.code)).length} simulated</span>`:""}</span>
+          <span style="font-size:10px;color:#9ca3af;font-weight:400">${courses.length} course${courses.length===1?"":"s"}</span>
+        </summary>
+        <div class="wi-group-body">
+          ${courses.map(c=>{
+            const realG = STATE.grades[c.code]||{label:"In Progress",num:null};
+            const simG = STATE.simGrades[c.code];
+            const isSimmed = simOn && simmedCodes.includes(c.code);
+            const tc = TYPE_COLOR[c.type]||"#374151";
+            const tb = TYPE_BG[c.type]||"#f9fafb";
+            return `<div class="sim-row ${isSimmed?"wi-diff-row":""}" style="background:${isSimmed?"":tb};border:1px solid ${isSimmed?"#ff9800":tc+"18"}">
+              <div style="min-width:0">
+                <div>
+                  <span style="font-weight:700;font-size:11px;color:${tc}">${c.code}</span>
+                  <span style="font-size:9px;color:${tc};background:${tb};border:1px solid ${tc}33;padding:1px 5px;border-radius:5px;margin-left:5px">${TYPE_LABEL[c.type]||c.type}</span>
+                </div>
+                <div style="font-size:10px;color:#6b7280;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${c.title} · ${c.units}u</div>
+              </div>
+              <div style="display:flex;align-items:center;gap:5px;flex-shrink:0">
+                <span style="font-size:10px;color:${gradeColor(realG)};font-weight:600">${realG.label}</span>
+                ${simOn?`<span style="font-size:10px;color:#6b7280">→</span>
+                <select onchange="setSimGrade('${c.code}',this.value)" style="padding:3px 5px;border-radius:6px;border:1px solid ${simG?"#ff9800":"#d1d5db"};font-size:10px;background:${simG?"#fff3cd":"#fff"};width:88px">
+                  ${GRADE_OPTIONS.map(go=>`<option value="${go.label}" ${(simG?simG.label:realG.label)===go.label?"selected":""}>${go.label}</option>`).join("")}
+                </select>
+                ${isSimmed?`<button onclick="clearSimGrade('${c.code}')" title="Reset to real grade" style="padding:2px 6px;border-radius:5px;border:1px solid #fca5a5;background:transparent;color:#dc2626;cursor:pointer;font-size:9px;font-family:inherit">↺</button>`:""}`:""}
+              </div>
+            </div>`;
+          }).join("")}
+        </div>
+      </details>`;
+    }).join("")}
   </div>`;
 }
 
@@ -2018,6 +2253,13 @@ function setSimGrade(code, label) {
   const found = GRADE_OPTIONS.find(g=>g.label===label);
   STATE.simGrades[code] = found||{label:"In Progress",num:null};
   saveState();
+  if (currentTab==="whatif") renderTab("whatif");
+  updateTopBadges();
+}
+function clearSimGrade(code) {
+  delete STATE.simGrades[code];
+  saveState();
+  if (currentTab==="whatif") renderTab("whatif");
   updateTopBadges();
 }
 
@@ -2979,9 +3221,9 @@ function renderPlanner(el) {
         style="width:44px;padding:2px 5px;border:1px solid #d1d5db;border-radius:5px;font-size:11px"
         onchange="PLAN_STATE.maxRegLoad=+this.value;savePlan();renderTab('planner')">u
     </label>
-    <label style="font-size:11px;display:flex;align-items:center;gap:5px;cursor:pointer" title="Suppresses underload warnings; enables graduating-semester scholarship exceptions">
+    <label style="font-size:11px;display:flex;align-items:center;gap:5px;cursor:pointer" title="Suppresses the <15-unit underload warning for your final term. Does NOT affect Scholarship Graduating Year status — that's auto-detected from your last Planner year.">
       <input type="checkbox" ${PLAN_STATE.isGraduatingSem?"checked":""} onchange="PLAN_STATE.isGraduatingSem=this.checked;savePlan();renderTab('planner')"
-        style="accent-color:#7B1113"> 🎓 Final Graduating Semester
+        style="accent-color:#7B1113"> 🎓 Final Term (suppress underload warning)
     </label>
     <span style="font-size:11px;color:#6b7280">${grad.plannedU}/${grad.totalU}u · ${grad.remaining} unplaced</span>
   </div>`;
